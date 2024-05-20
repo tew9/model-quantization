@@ -50,3 +50,38 @@ def calculate_dequantization_error(original_tensor, dequantized_tensor):
 
 def linear_dequantizer(q_tensor, scale, zeropoint):
     return scale * (q_tensor.float() - zeropoint)
+
+def get_q_scale_symmetric(tensor, dtype=torch.int8):
+  r_max = tensor.abs().max().item()
+  q_max = torch.iinfo(dtype).max
+  scale = r_max / q_max
+  return scale
+
+def linear_q_with_scale_and_zeropoint(tensor, scale, zeropoint, dtype=torch.int8):
+    scaled_and_linear_shifted_tensor = tensor / scale + zeropoint
+    rounded_tensor = torch.round(scaled_and_linear_shifted_tensor)
+
+    # Make sure the quantized tensor is in the range of the min and max quantized value
+    # Get min and max quantized value
+    min_val = torch.iinfo(dtype).min
+    max_val = torch.iinfo(dtype).max
+
+    # Clamp the quantized tensor to the min and max quantized value
+    q_tensor = rounded_tensor.clamp(min_val, max_val).to(dtype)
+    return q_tensor
+
+def linear_q_symmetric(tensor, dtype=torch.int8):
+  scale = get_q_scale_symmetric(tensor, dtype)
+  q_tensor = linear_q_with_scale_and_zeropoint(tensor, scale, 0, dtype)
+  return q_tensor, scale
+
+def quantize_linear_W8A32_without_bias(input, quantized_w, scale_w, zeropoint_w):
+  # make sure the input is float32
+  assert input.type() == torch.float32
+  # make sure the quanted weights are int8
+  assert quantized_w.type() == torch.int8
+  # dequantize the weights
+  dequantized_weights = quantized_w.float() * scale_w + zeropoint_w
+  #make inference using linear layer
+  output = torch.nn.functional.linear(input, dequantized_weights)
+  return output
